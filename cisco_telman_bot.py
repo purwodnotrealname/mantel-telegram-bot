@@ -15,6 +15,12 @@ INTERFACE_STATUS_OID = "1.3.6.1.2.1.2.2.1.8"    # ifOperStatus - Interface opera
 INTERFACE_IP_OID = "1.3.6.1.2.1.4.20.1.1"       # ipAdEntAddr - IP addresses
 INTERFACE_IP_INDEX_OID = "1.3.6.1.2.1.4.20.1.2"  # ipAdEntIfIndex - Interface index for IP
 
+# Monitoring settings
+MONITOR_INTERVAL = 20  # Check every 30 seconds
+monitoring_active = False
+chat_id = None
+interface_status_cache = {}
+
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -129,7 +135,6 @@ class CiscoSNMPManager:
         return results
     
     def get_interface_data(self):
-        """Get comprehensive interface information"""
         try:
             # Get interface names
             interface_names = self.snmp_walk(INTERFACE_NAME_OID)
@@ -182,17 +187,119 @@ class CiscoSNMPManager:
         except Exception as e:
             logger.error(f"Error getting interface data: {str(e)}")
             return False, str(e)
+    
+    def get_interface_status_only(self):
+        try:
+            interface_names = self.snmp_walk(INTERFACE_NAME_OID)
+            interface_status = self.snmp_walk(INTERFACE_STATUS_OID)
+            
+            status_data = {}
+            for index in interface_names.keys():
+                interface_name = interface_names.get(index, f"Interface{index}")
+                
+                # Filter out loopback interfaces
+                if not interface_name.lower().startswith(('lo', 'null', 'voi')):
+                    status_code = interface_status.get(index, "0")
+                    if status_code == "1":
+                        status = "up"
+                    elif status_code == "2":
+                        status = "down"
+                    elif status_code == "3":
+                        status = "testing"
+                    else:
+                        status = "unknown"
+                    
+                    status_data[index] = {
+                        'name': interface_name,
+                        'status': status
+                    }
+            
+            return True, status_data
+            
+        except Exception as e:
+            logger.error(f"Error getting interface status: {str(e)}")
+            return False, {}
 
 # Initialize SNMP manager
 snmp_manager = CiscoSNMPManager(ROUTER_IP, SNMP_COMMUNITY, SNMP_PORT)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global monitoring_active, chat_id, interface_status_cache
+    
+    chat_id = update.effective_chat.id
+    monitoring_active = True
+    
+    # Initialize interface status cache
+    success, status_data = snmp_manager.get_interface_status_only()
+    if success:
+        interface_status_cache = status_data
+    
     welcome_message = (
-        "/start - start\n"
-        "/status - Display interface table\n"
+        "Interface monitoring started!\n\n"
+        "Commands:\n"
+        "/start - Start monitoring\n"
+        "/status - Display interface table\n\n"
+        f"Monitoring router: {ROUTER_IP}\n"
+        f"Check interval: {MONITOR_INTERVAL} seconds\n\n"
     )
+    
     await update.message.reply_text(welcome_message)
+    
+    # Start monitoring task if not already running
+    if not hasattr(context.application, 'monitoring_task') or context.application.monitoring_task.done():
+        context.application.monitoring_task = asyncio.create_task(monitor_interfaces(context.application))
 
+async def monitor_interfaces(application):
+    """Background task to monitor interface status"""
+    global monitoring_active, chat_id, interface_status_cache
+    
+    logger.info("Interface monitoring started")
+    
+    while monitoring_active:
+        try:
+            success, current_status = snmp_manager.get_interface_status_only()
+            
+            if success:
+                # Check for status changes
+                for index, interface_info in current_status.items():
+                    interface_name = interface_info['name']
+                    current_status_val = interface_info['status']
+                    
+                    # Simplify interface name for display
+                    display_name = interface_name
+                    if interface_name.startswith('GigabitEthernet'):
+                        display_name = interface_name.replace('GigabitEthernet', 'Gi')
+                    elif interface_name.startswith('FastEthernet'):
+                        display_name = interface_name.replace('FastEthernet', 'Fa')
+                    elif interface_name.startswith('TenGigabitEthernet'):
+                        display_name = interface_name.replace('TenGigabitEthernet', 'Te')
+                    elif interface_name.startswith('Serial'):
+                        display_name = interface_name.replace('Serial', 'Se')
+                    elif interface_name.startswith('Ethernet'):
+                        display_name = interface_name.replace('Ethernet', 'Et')
+                    
+                    # Check if interface status changed to down
+                    if index in interface_status_cache:
+                        previous_status = interface_status_cache[index]['status']
+                        
+                        if previous_status == "up" and current_status_val == "down":
+                            alert_message = f"INTERFACE DOWN ALERT!\n\nInterface: {display_name}\nStatus: {current_status_val}\nRouter: {ROUTER_IP}"
+                            
+                            if chat_id:
+                                try:
+                                    await application.bot.send_message(chat_id=chat_id, text=alert_message)
+                                    logger.info(f"Alert sent for interface {display_name} going down")
+                                except Exception as e:
+                                    logger.error(f"Failed to send alert: {e}")
+                    
+                    # Update cache
+                    interface_status_cache[index] = interface_info
+                    
+        except Exception as e:
+            logger.error(f"Monitor error: {e}")
+        
+        # Wait before next check
+        await asyncio.sleep(MONITOR_INTERVAL)
 
 async def get_router_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     processing_msg = await update.message.reply_text("Querying router interfaces...")
@@ -267,6 +374,8 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 def main() -> None:
+    global monitoring_active
+    
     # Validation
     if TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
         print("ERROR: no token found")
@@ -275,6 +384,7 @@ def main() -> None:
     # show target
     print(f"Starting Cisco SNMP Monitor Bot...")
     print(f"Target Router: {ROUTER_IP}")
+    print(f"Monitor Interval: {MONITOR_INTERVAL} seconds")
     print(f"Monitoring Interface Information:")
     print(f"- Names: {INTERFACE_NAME_OID}")
     print(f"- Status: {INTERFACE_STATUS_OID}") 
@@ -292,8 +402,10 @@ def main() -> None:
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)
     except KeyboardInterrupt:
+        monitoring_active = False
         print("\nBot stopped by user")
     except Exception as e:
+        monitoring_active = False
         print(f"Bot error: {e}")
 
 if __name__ == '__main__':
