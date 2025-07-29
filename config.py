@@ -1,7 +1,7 @@
 # config.py - Configuration settings
 
 # Telegram Bot Configuration
-TELEGRAM_BOT_TOKEN = "8162377906:AAFkOvczwU6u_rpO9xiZc9D4mjEomdBokSQ"
+TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN"
 
 # Router Configuration
 ROUTER_IP = "192.168.137.130"
