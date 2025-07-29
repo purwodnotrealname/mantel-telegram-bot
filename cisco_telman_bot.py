@@ -4,7 +4,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from pysnmp.hlapi import *
 
-TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  
+# init
+TELEGRAM_BOT_TOKEN = "8162377906:AAFkOvczwU6u_rpO9xiZc9D4mjEomdBokSQ"  
 ROUTER_IP = "192.168.137.130"
 SNMP_COMMUNITY = "public"  
 SNMP_PORT = 161
@@ -16,7 +17,7 @@ INTERFACE_IP_OID = "1.3.6.1.2.1.4.20.1.1"       # ipAdEntAddr - IP addresses
 INTERFACE_IP_INDEX_OID = "1.3.6.1.2.1.4.20.1.2"  # ipAdEntIfIndex - Interface index for IP
 
 # Monitoring settings
-MONITOR_INTERVAL = 20  # Check every 30 seconds
+MONITOR_INTERVAL = 600  # Check every 20 seconds
 monitoring_active = False
 chat_id = None
 interface_status_cache = {}
@@ -45,7 +46,7 @@ class CiscoSNMPManager:
                 ObjectType(ObjectIdentity(oid)),
                 lexicographicMode=False,
                 ignoreNonIncreasingOid=True,
-                maxRows=50):
+                maxRows=64):
                 
                 if errorIndication:
                     logger.error(f"SNMP Walk Error: {errorIndication}")
@@ -90,7 +91,6 @@ class CiscoSNMPManager:
                     for varBind in varBinds:
                         oid_key = str(varBind[0])
                         ip_address = str(varBind[1])
-                        # For IP addresses, the IP is the value, not derived from OID
                         results[ip_address] = ip_address
                         
         except Exception as e:
@@ -197,7 +197,7 @@ class CiscoSNMPManager:
             for index in interface_names.keys():
                 interface_name = interface_names.get(index, f"Interface{index}")
                 
-                # Filter out loopback interfaces
+                # Filter loopback interfaces
                 if not interface_name.lower().startswith(('lo', 'null', 'voi')):
                     status_code = interface_status.get(index, "0")
                     if status_code == "1":
@@ -260,12 +260,15 @@ async def monitor_interfaces(application):
             success, current_status = snmp_manager.get_interface_status_only()
             
             if success:
+                down_interfaces = []
+                status_changes = []
+                
                 # Check for status changes
                 for index, interface_info in current_status.items():
                     interface_name = interface_info['name']
                     current_status_val = interface_info['status']
                     
-                    # Simplify interface name for display
+                    # Simplify
                     display_name = interface_name
                     if interface_name.startswith('GigabitEthernet'):
                         display_name = interface_name.replace('GigabitEthernet', 'Gi')
@@ -278,22 +281,53 @@ async def monitor_interfaces(application):
                     elif interface_name.startswith('Ethernet'):
                         display_name = interface_name.replace('Ethernet', 'Et')
                     
+                    # Collect all down interfaces
+                    if current_status_val == "down":
+                        down_interfaces.append(display_name)
+                    
                     # Check if interface status changed to down
                     if index in interface_status_cache:
                         previous_status = interface_status_cache[index]['status']
                         
                         if previous_status == "up" and current_status_val == "down":
-                            alert_message = f"INTERFACE DOWN ALERT!\n\nInterface: {display_name}\nStatus: {current_status_val}\nRouter: {ROUTER_IP}"
-                            
-                            if chat_id:
-                                try:
-                                    await application.bot.send_message(chat_id=chat_id, text=alert_message)
-                                    logger.info(f"Alert sent for interface {display_name} going down")
-                                except Exception as e:
-                                    logger.error(f"Failed to send alert: {e}")
+                            status_changes.append(f"Interface {display_name} went DOWN")
+                        elif previous_status == "down" and current_status_val == "up":
+                            status_changes.append(f"Interface {display_name} came UP")
                     
                     # Update cache
                     interface_status_cache[index] = interface_info
+                
+                # Send status change alerts
+                if status_changes and chat_id:
+                    try:
+                        alert_message = "INTERFACE STATUS CHANGE!\n\n" + "\n".join(status_changes) + f"\n\nRouter: {ROUTER_IP}"
+                        await application.bot.send_message(chat_id=chat_id, text=alert_message)
+                        logger.info(f"Status change alert sent: {', '.join(status_changes)}")
+                    except Exception as e:
+                        logger.error(f"Failed to send status change alert: {e}")
+                
+                # Print all down interfaces to console
+                if down_interfaces:
+                    print(f"\n--- DOWN INTERFACES CHECK ({ROUTER_IP}) ---")
+                    for interface in down_interfaces:
+                        print(f"DOWN: {interface}")
+                    print(f"Total down interfaces: {len(down_interfaces)}")
+                    print("---" + "-" * 45)
+                else:
+                    print(f"\n--- All interfaces UP on {ROUTER_IP} ---")
+                
+                # Send periodic report of all down interfaces to Telegram
+                if down_interfaces and chat_id:
+                    try:
+                        down_report = f"DOWN INTERFACES REPORT\n\nRouter: {ROUTER_IP}\n\nCurrently down interfaces:\n"
+                        for interface in down_interfaces:
+                            down_report += f"- {interface}\n"
+                        down_report += f"\nTotal: {len(down_interfaces)} interfaces down"
+                        
+                        await application.bot.send_message(chat_id=chat_id, text=down_report)
+                        logger.info(f"Down interfaces report sent: {len(down_interfaces)} interfaces")
+                    except Exception as e:
+                        logger.error(f"Failed to send down interfaces report: {e}")
                     
         except Exception as e:
             logger.error(f"Monitor error: {e}")
