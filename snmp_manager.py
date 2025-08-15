@@ -7,12 +7,22 @@ from config import *
 logger = logging.getLogger(__name__)
 
 class CiscoSNMPManager:
-    def __init__(self, host, community="public", port=161):
+    def __init__(self, host=None, community="public", port=161):
         self.host = host
         self.community = community
         self.port = port
     
+    def _check_host(self):
+        """Check if host is set before performing SNMP operations"""
+        if not self.host:
+            logger.error("No router IP set. Please use the 'Set Router IP' button to configure the router IP.")
+            return False
+        return True
+    
     def snmp_walk(self, oid):
+        if not self._check_host():
+            return {}
+            
         results = {}
         try:
             for (errorIndication, errorStatus, errorIndex, varBinds) in nextCmd(
@@ -26,10 +36,10 @@ class CiscoSNMPManager:
                 maxRows=64):
                 
                 if errorIndication:
-                    logger.error(f"SNMP Walk Error: {errorIndication}")
+                    logger.error(f"SNMP Walk Error for {self.host}: {errorIndication}")
                     break
                 elif errorStatus:
-                    logger.error(f"SNMP Walk Error: {errorStatus.prettyPrint()}")
+                    logger.error(f"SNMP Walk Error for {self.host}: {errorStatus.prettyPrint()}")
                     break
                 else:
                     for varBind in varBinds:
@@ -40,12 +50,15 @@ class CiscoSNMPManager:
                         results[index] = value
                         
         except Exception as e:
-            logger.error(f"SNMP Walk Exception: {str(e)}")
+            logger.error(f"SNMP Walk Exception for {self.host}: {str(e)}")
             return {}
         
         return results
     
     def snmp_walk_ip_addresses(self):
+        if not self._check_host():
+            return {}
+            
         results = {}
         try:
             for (errorIndication, errorStatus, errorIndex, varBinds) in nextCmd(
@@ -59,10 +72,10 @@ class CiscoSNMPManager:
                 maxRows=50):
                 
                 if errorIndication:
-                    logger.error(f"SNMP Walk Error: {errorIndication}")
+                    logger.error(f"SNMP Walk Error for {self.host}: {errorIndication}")
                     break
                 elif errorStatus:
-                    logger.error(f"SNMP Walk Error: {errorStatus.prettyPrint()}")
+                    logger.error(f"SNMP Walk Error for {self.host}: {errorStatus.prettyPrint()}")
                     break
                 else:
                     for varBind in varBinds:
@@ -71,12 +84,15 @@ class CiscoSNMPManager:
                         results[ip_address] = ip_address
                         
         except Exception as e:
-            logger.error(f"SNMP Walk Exception: {str(e)}")
+            logger.error(f"SNMP Walk Exception for {self.host}: {str(e)}")
             return {}
         
         return results
     
     def snmp_walk_ip_to_interface(self):
+        if not self._check_host():
+            return {}
+            
         results = {}
         try:
             for (errorIndication, errorStatus, errorIndex, varBinds) in nextCmd(
@@ -90,10 +106,10 @@ class CiscoSNMPManager:
                 maxRows=50):
                 
                 if errorIndication:
-                    logger.error(f"SNMP Walk Error: {errorIndication}")
+                    logger.error(f"SNMP Walk Error for {self.host}: {errorIndication}")
                     break
                 elif errorStatus:
-                    logger.error(f"SNMP Walk Error: {errorStatus.prettyPrint()}")
+                    logger.error(f"SNMP Walk Error for {self.host}: {errorStatus.prettyPrint()}")
                     break
                 else:
                     for varBind in varBinds:
@@ -106,12 +122,15 @@ class CiscoSNMPManager:
                             results[ip_address] = interface_index
                         
         except Exception as e:
-            logger.error(f"SNMP Walk Exception: {str(e)}")
+            logger.error(f"SNMP Walk Exception for {self.host}: {str(e)}")
             return {}
         
         return results
     
     def get_interface_data(self):
+        if not self._check_host():
+            return False, "No router IP set. Please use the 'Set Router IP' button to configure the router IP."
+            
         try:
             # Get interface names
             interface_names = self.snmp_walk(INTERFACE_NAME_OID)
@@ -122,7 +141,7 @@ class CiscoSNMPManager:
             # Get IP associated interface
             ip_to_interface = self.snmp_walk_ip_to_interface()
             
-            # mapping interface index to IP
+            # Mapping interface index to IP
             interface_ips = {}
             for ip, interface_idx in ip_to_interface.items():
                 if interface_idx in interface_ips:
@@ -162,10 +181,13 @@ class CiscoSNMPManager:
             return True, interfaces
             
         except Exception as e:
-            logger.error(f"Error getting interface data: {str(e)}")
+            logger.error(f"Error getting interface data for {self.host}: {str(e)}")
             return False, str(e)
     
     def get_interface_status_only(self):
+        if not self._check_host():
+            return False, {}
+            
         try:
             interface_names = self.snmp_walk(INTERFACE_NAME_OID)
             interface_status = self.snmp_walk(INTERFACE_STATUS_OID)
@@ -194,7 +216,7 @@ class CiscoSNMPManager:
             return True, status_data
             
         except Exception as e:
-            logger.error(f"Error getting interface status: {str(e)}")
+            logger.error(f"Error getting interface status for {self.host}: {str(e)}")
             return False, {}
 
 def get_simplified_interface_name(interface_name):
