@@ -1,19 +1,19 @@
-# snmp_manager.py - SNMP operations and interface management
-
 import logging
 from pysnmp.hlapi import *
 from config import *
+from dotenv import load_dotenv
+
+load_dotenv() 
 
 logger = logging.getLogger(__name__)
 
 class CiscoSNMPManager:
-    def __init__(self, host=None, community="public", port=161):
+    def __init__(self, host=None, community=None , port=None):
         self.host = host
-        self.community = community
-        self.port = port
+        self.community = community or os.getenv('SNMP_COMMUNITY', '')
+        self.port = port or os.getenv('SNMP_PORT', '')
     
     def _check_host(self):
-        """Check if host is set before performing SNMP operations"""
         if not self.host:
             logger.error("No router IP set. Please use the 'Set Router IP' button to configure the router IP.")
             return False
@@ -212,7 +212,7 @@ class CiscoSNMPManager:
                         'name': interface_name,
                         'status': status
                     }
-            
+
             return True, status_data
             
         except Exception as e:

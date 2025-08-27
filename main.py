@@ -29,7 +29,7 @@ def print_startup_info():
 
 def create_command_handlers(snmp_manager):
     from bot_handlers import (
-        start_command, stop_command, status_command, unknown_command,
+        start_command, status_command, unknown_command,
         handle_start_monitoring, handle_stop_monitoring, handle_show_status,
         handle_set_router_ip, handle_cancel_set_ip, handle_text
     )
