@@ -20,7 +20,6 @@ def validate_configuration():
 
 def print_startup_info():
     print(f"Starting Cisco SNMP Monitor Bot...")
-    print(f"Monitor Interval: {MONITOR_INTERVAL} seconds")
     print(f"Monitoring Interface Information:")
     print(f"- Names: {INTERFACE_NAME_OID}")
     print(f"- Status: {INTERFACE_STATUS_OID}") 

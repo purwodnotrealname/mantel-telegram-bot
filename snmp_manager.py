@@ -32,8 +32,7 @@ class CiscoSNMPManager:
                 ContextData(),
                 ObjectType(ObjectIdentity(oid)),
                 lexicographicMode=False,
-                ignoreNonIncreasingOid=True,
-                maxRows=64):
+                ignoreNonIncreasingOid=True):
                 
                 if errorIndication:
                     logger.error(f"SNMP Walk Error for {self.host}: {errorIndication}")
@@ -45,7 +44,7 @@ class CiscoSNMPManager:
                     for varBind in varBinds:
                         oid_key = str(varBind[0])
                         value = str(varBind[1])
-                        # Extract interface index from OID
+                        # Extract
                         index = oid_key.split('.')[-1]
                         results[index] = value
                         
@@ -68,8 +67,7 @@ class CiscoSNMPManager:
                 ContextData(),
                 ObjectType(ObjectIdentity(INTERFACE_IP_OID)),
                 lexicographicMode=False,
-                ignoreNonIncreasingOid=True,
-                maxRows=50):
+                ignoreNonIncreasingOid=True):
                 
                 if errorIndication:
                     logger.error(f"SNMP Walk Error for {self.host}: {errorIndication}")
@@ -89,6 +87,37 @@ class CiscoSNMPManager:
         
         return results
     
+
+    def snmp_SYSUPTIME(self):
+        if not self.host:
+            return False, "Router IP not set"
+
+        try:
+            iterator = getCmd(
+                SnmpEngine(),
+                CommunityData(self.community, mpModel=0),
+                UdpTransportTarget((self.host, self.port)),
+                ContextData(),
+                ObjectType(ObjectIdentity("1.3.6.1.2.1.1.3.0"))  # sysUpTime OID
+            )
+
+            errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
+
+            if errorIndication:
+                return False, f"SNMP error: {errorIndication}"
+            elif errorStatus:
+                return False, f"SNMP error: {errorStatus.prettyPrint()}"
+            else:
+                for varBind in varBinds:
+                    return True, f"{varBind[1]}"  # uptime value as string
+
+        except Exception as e:
+            return False, f"Exception: {e}"
+
+        # safety return in case none of the above runs
+        return False, "Unknown error"
+
+    
     def snmp_walk_ip_to_interface(self):
         if not self._check_host():
             return {}
@@ -102,8 +131,7 @@ class CiscoSNMPManager:
                 ContextData(),
                 ObjectType(ObjectIdentity(INTERFACE_IP_INDEX_OID)),
                 lexicographicMode=False,
-                ignoreNonIncreasingOid=True,
-                maxRows=50):
+                ignoreNonIncreasingOid=True):
                 
                 if errorIndication:
                     logger.error(f"SNMP Walk Error for {self.host}: {errorIndication}")
@@ -116,10 +144,8 @@ class CiscoSNMPManager:
                         oid_key = str(varBind[0])
                         interface_index = str(varBind[1])
                         # Extract IP from OID
-                        oid_parts = oid_key.split('.')
-                        if len(oid_parts) >= 4:
-                            ip_address = '.'.join(oid_parts[-4:])
-                            results[ip_address] = interface_index
+                        ip_address = ".".join(oid_key.split(".")[-4:])
+                        results[ip_address] = interface_index
                         
         except Exception as e:
             logger.error(f"SNMP Walk Exception for {self.host}: {str(e)}")
@@ -132,16 +158,16 @@ class CiscoSNMPManager:
             return False, "No router IP set. Please use the 'Set Router IP' button to configure the router IP."
             
         try:
-            # Get interface names
+            # names
             interface_names = self.snmp_walk(INTERFACE_NAME_OID)
             
-            # Get interface status
+            # status
             interface_status = self.snmp_walk(INTERFACE_STATUS_OID)
             
-            # Get IP associated interface
+            # interface
             ip_to_interface = self.snmp_walk_ip_to_interface()
             
-            # Mapping interface index to IP
+            # Mapping if index to IP
             interface_ips = {}
             for ip, interface_idx in ip_to_interface.items():
                 if interface_idx in interface_ips:
@@ -154,7 +180,7 @@ class CiscoSNMPManager:
             for index in interface_names.keys():
                 interface_name = interface_names.get(index, f"Interface{index}")
                 
-                # Convert status number to readable format
+                #  Format status number
                 status_code = interface_status.get(index, "0")
                 if status_code == "1":
                     status = "up"
